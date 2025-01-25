@@ -16,6 +16,7 @@ import com.example.refactor.network.ApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.IOException
 
@@ -64,32 +65,34 @@ class FormActivity : AppCompatActivity() {
         val apiInterface = ApiClient.api
         val formData = FormData(mobile = mobileNumber, mPin = mPin)
 
-        Log.d("FormActivity", "Sending data to backend")
+        // Immediate user feedback
+        runOnUiThread {
+            showToast("Processing...")
+        }
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val response = apiInterface.saveFormDataStep1(formData)
-                if (response.isSuccessful) {
-                    val responseBody = response.body()
-                    if (responseBody?.success == true) {
-                        val userId = responseBody.data?.userId
-                        Log.d("FormActivity", "User ID received")
-                        runOnUiThread { handleUserId(userId) }
+                withContext(Dispatchers.Main) {
+                    if (response.isSuccessful) {
+                        val responseBody = response.body()
+                        if (responseBody?.success == true) {
+                            val userId = responseBody.data?.userId
+                            Log.d("FormActivity", "User ID received")
+                            handleUserId(userId)
+                        } else {
+                            showToast("Submission failed")
+                        }
                     } else {
-                        runOnUiThread { showToast("Submission failed") }
+                        showToast("Submission error")
                     }
-                } else {
-                    runOnUiThread { showToast("Submission error") }
                 }
             } catch (e: HttpException) {
-                Log.e("FormActivity", "HTTP Exception")
-                runOnUiThread { showToast("HTTP Error") }
+                withContext(Dispatchers.Main) { showToast("HTTP Error") }
             } catch (e: IOException) {
-                Log.e("FormActivity", "Network Error")
-                runOnUiThread { showToast("Network Error") }
+                withContext(Dispatchers.Main) { showToast("Network Error") }
             } catch (e: Exception) {
-                Log.e("FormActivity", "Unexpected Error")
-                runOnUiThread { showToast("Unexpected Error") }
+                withContext(Dispatchers.Main) { showToast("Unexpected Error") }
             }
         }
     }
