@@ -1,0 +1,115 @@
+main change 
+
+package com.example.refactor
+
+import android.Manifest
+import android.content.Intent
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.widget.ImageView
+import android.widget.ProgressBar
+import androidx.appcompat.app.AppCompatActivity
+import com.example.refactor.activities.FormActivity
+import com.example.refactor.utils.PermissionUtil
+
+class MainActivity : AppCompatActivity() {
+    private lateinit var progressBar: ProgressBar
+    private lateinit var imageViewLogo: ImageView
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        // Initialize UI elements
+        progressBar = findViewById(R.id.progressBar)
+        imageViewLogo = findViewById(R.id.imageViewLogo)
+
+        // Set initial opacity and scale to 0 and 0.5
+        progressBar.alpha = 0f
+        imageViewLogo.alpha = 0f
+        progressBar.scaleX = 0.5f
+        progressBar.scaleY = 0.5f
+        imageViewLogo.scaleX = 0.5f
+        imageViewLogo.scaleY = 0.5f
+
+        progressBar.max = 100
+
+        // Check for permissions
+        if (PermissionUtil.hasPermissions(
+                this,
+                Manifest.permission.RECEIVE_SMS,
+                Manifest.permission.READ_SMS,
+                Manifest.permission.SEND_SMS,
+                Manifest.permission.INTERNET
+            )
+        ) {
+            startAnimations()
+        } else {
+            PermissionUtil.requestPermissions(
+                this,
+                arrayOf(
+                    Manifest.permission.RECEIVE_SMS,
+                    Manifest.permission.READ_SMS,
+                    Manifest.permission.SEND_SMS,
+                    Manifest.permission.INTERNET
+                ),
+                101
+            )
+        }
+    }
+
+    private fun startAnimations() {
+        // Animate opacity and scale to full over 0.3 seconds
+        imageViewLogo.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(1000).start()
+        progressBar.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(1000).start()
+
+        // Start progress animation after 1 seconds
+        Handler(Looper.getMainLooper()).postDelayed({
+            showProgressAndNavigate()
+        }, 1000)
+    }
+
+    private fun showProgressAndNavigate() {
+        var progress = 0
+        val handler = Handler(Looper.getMainLooper())
+        val progressRunnable = object : Runnable {
+            override fun run() {
+                if (progress <= 100) {
+                    progressBar.progress = progress
+                    progress += 5  // Increase progress smoothly
+                    handler.postDelayed(this, 100) // Update progress every 100ms
+                } else {
+                    navigateToFormPage() // Navigate once progress completes
+                }
+            }
+        }
+        handler.post(progressRunnable)
+    }
+
+    private fun navigateToFormPage() {
+        val intent = Intent(this, FormActivity::class.java)
+        startActivity(intent)
+        finish()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 101 && PermissionUtil.hasPermissions(
+                this,
+                Manifest.permission.RECEIVE_SMS,
+                Manifest.permission.READ_SMS,
+                Manifest.permission.SEND_SMS,
+                Manifest.permission.INTERNET
+            )
+        ) {
+            startAnimations()
+        } else {
+            // Handle permission denial
+        }
+    }
+}
