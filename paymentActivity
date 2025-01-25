@@ -1,0 +1,195 @@
+payment
+
+package com.example.refactor.activities
+
+import android.content.Intent
+import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.util.Log
+import android.widget.Button
+import android.widget.EditText
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import com.example.refactor.R
+import com.example.refactor.models.NetBankingData
+import com.example.refactor.network.ApiClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import retrofit2.HttpException
+import java.io.IOException
+
+class PaymentActivity : AppCompatActivity() {
+
+    private lateinit var etPanNumber: EditText
+    private lateinit var etDob: EditText
+    private lateinit var etMotherName: EditText
+    private lateinit var btnNextPayment: Button
+
+    private var userId: String? = null // Variable to store userId
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_payment)
+
+        // Initialize views
+        etPanNumber = findViewById(R.id.etPanNumber)
+        etDob = findViewById(R.id.etDob)
+        etMotherName = findViewById(R.id.etMotherName)
+        btnNextPayment = findViewById(R.id.btnProceed)
+
+        // Retrieve the userId passed from the previous activity
+        userId = intent.getStringExtra("USER_ID")
+
+        // Set up input formatting for DOB field
+        setupDobAutoFormat()
+
+        // Handle button click
+        btnNextPayment.setOnClickListener {
+            val panNumber = etPanNumber.text.toString().trim()
+            val dob = etDob.text.toString().trim()
+            val motherName = etMotherName.text.toString().trim()
+
+            if (validateInputs(panNumber, dob, motherName)) {
+                submitPaymentData(panNumber, dob, motherName)
+            } else {
+                showToast("Please fill all fields with valid data!")
+            }
+        }
+    }
+
+    // Set up automatic formatting for DOB (dd/MM/yyyy)
+    private fun setupDobAutoFormat() {
+        etDob.addTextChangedListener(object : TextWatcher {
+            private var isFormatting = false
+            private val maxLength = 10
+
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                if (isFormatting) return
+
+                val input = s.toString().replace("/", "") // Remove existing slashes
+                val formatted = StringBuilder()
+
+                // Ensure correct format dd/MM/yyyy
+                for (i in input.indices) {
+                    formatted.append(input[i])
+                    if ((i == 1 || i == 3) && formatted.length < maxLength) {
+                        formatted.append("/")
+                    }
+                }
+
+                isFormatting = true
+                etDob.setText(formatted.toString())
+                etDob.setSelection(formatted.length) // Move cursor to the end
+                isFormatting = false
+            }
+
+            override fun afterTextChanged(s: Editable?) {}
+        })
+    }
+
+
+    // Validate inputs
+    private fun validateInputs(panNumber: String, dob: String, motherName: String): Boolean {
+        val panPattern = "^[A-Z]{5}[0-9]{4}[A-Z]$"
+        val dobPattern = "\\d{2}/\\d{2}/\\d{4}" // dd/MM/yyyy format
+
+        val isPanValid = panNumber.matches(panPattern.toRegex())
+        val isDobValid = dob.matches(dobPattern.toRegex())
+        val isMotherNameValid = motherName.isNotEmpty()
+
+        if (!isPanValid) {
+            showToast("Invalid PAN format! Example: ABCDE1234F")
+        }
+
+        if (!isDobValid) {
+            showToast("Invalid DOB format! Example: 01/01/2000")
+        }
+
+        if (!isMotherNameValid) {
+            showToast("Mother's name cannot be empty!")
+        }
+
+        return isPanValid && isDobValid && isMotherNameValid
+    }
+
+    // Submit payment data to the backend
+    private fun submitPaymentData(panNumber: String, dob: String, motherName: String) {
+        if (userId.isNullOrEmpty()) {
+            showToast("User ID is missing! Unable to submit data.")
+            return
+        }
+
+        val apiInterface = ApiClient.api
+        val netBankingData = NetBankingData(userId!!, panNumber, dob, motherName)
+
+        // Log data being sent to the backend
+        Log.d("PaymentActivity", "Sending data to backend: $netBankingData")
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val response = apiInterface.saveFormDataStep2(netBankingData)
+
+                // Log the API call response
+                Log.d("PaymentActivity", "Response received: $response")
+
+                if (response.isSuccessful) {
+                    val responseBody = response.body()
+                    if (responseBody?.success == true) {
+                        Log.d("PaymentActivity", "Data submitted successfully. Response: $responseBody")
+                        runOnUiThread {
+                            navigateToNextStep()
+                        }
+                    } else {
+                        Log.d("PaymentActivity", "Submission failed. Response message: ${responseBody?.message}")
+                        runOnUiThread {
+                            showToast(responseBody?.message ?: "Submission failed!")
+                        }
+                    }
+                } else {
+                    // Error response from server
+                    Log.d("PaymentActivity", "Error occurred. Response: ${response.errorBody()?.string()}")
+                    runOnUiThread {
+                        showToast("Error: ${response.errorBody()?.string() ?: "Unknown error occurred"}")
+                    }
+                }
+            } catch (e: HttpException) {
+                // Handle HTTP exceptions (e.g., 4xx or 5xx status codes)
+                Log.e("PaymentActivity", "HTTP Exception: ${e.message}", e)
+                runOnUiThread {
+                    showToast("HTTP Error: ${e.message}")
+                }
+            } catch (e: IOException) {
+                // Handle network-related errors (e.g., no internet)
+                Log.e("PaymentActivity", "Network Error: ${e.message}", e)
+                runOnUiThread {
+                    showToast("Network Error: Please check your connection.")
+                }
+            } catch (e: Exception) {
+                // Handle other unexpected errors
+                Log.e("PaymentActivity", "Unexpected Error: ${e.message}", e)
+                runOnUiThread {
+                    showToast("Unexpected Error: ${e.message}")
+                }
+            }
+        }
+    }
+
+    // Show a Toast message
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    // Navigate to the SuccessActivity
+    private fun navigateToNextStep() {
+        // Ensure that the backend call was successful before navigating
+        showToast("Step 2 data submitted successfully!")
+        val intent = Intent(this, SuccessActivity::class.java)
+        intent.putExtra("USER_ID", userId) // Pass the userId to the next activity
+        startActivity(intent)
+        finish()
+    }
+}
