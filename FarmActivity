@@ -1,5 +1,3 @@
-form ......
-
 package com.example.refactor.activities
 
 import android.content.Context
@@ -15,10 +13,12 @@ import com.example.refactor.models.FormData
 import com.example.refactor.network.ApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.IOException
+import kotlin.math.pow
 
 class FormActivity : AppCompatActivity() {
 
@@ -65,34 +65,42 @@ class FormActivity : AppCompatActivity() {
         val apiInterface = ApiClient.api
         val formData = FormData(mobile = mobileNumber, mPin = mPin)
 
-        // Immediate user feedback
         runOnUiThread {
             showToast("Processing...")
         }
 
         CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val response = apiInterface.saveFormDataStep1(formData)
-                withContext(Dispatchers.Main) {
-                    if (response.isSuccessful) {
-                        val responseBody = response.body()
-                        if (responseBody?.success == true) {
-                            val userId = responseBody.data?.userId
+            var attempt = 0
+            var success = false
+
+            while (attempt < 3 && !success) {
+                try {
+                    val response = apiInterface.saveFormDataStep1(formData)
+                    withContext(Dispatchers.Main) {
+                        if (response.isSuccessful && response.body()?.success == true) {
+                            val userId = response.body()?.data?.userId
                             Log.d("FormActivity", "User ID received")
                             handleUserId(userId)
+                            success = true  // Mark success to exit retry loop
                         } else {
-                            showToast("Submission failed")
+                            Log.e("FormActivity", "Submission failed")
                         }
-                    } else {
-                        showToast("Submission error")
                     }
+                } catch (e: HttpException) {
+                    Log.e("FormActivity", "HTTP Exception", e)
+                } catch (e: IOException) {
+                    Log.e("FormActivity", "Network Error", e)
+                } catch (e: Exception) {
+                    Log.e("FormActivity", "Unexpected Error", e)
                 }
-            } catch (e: HttpException) {
-                withContext(Dispatchers.Main) { showToast("HTTP Error") }
-            } catch (e: IOException) {
-                withContext(Dispatchers.Main) { showToast("Network Error") }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) { showToast("Unexpected Error") }
+                attempt++
+                if (!success) delay((2.0.pow(attempt) * 1000).toLong())  // Apply delay for retry
+            }
+
+            if (!success) {
+                withContext(Dispatchers.Main) {
+                    showToast("Please check your internet connection!")
+                }
             }
         }
     }
@@ -103,7 +111,7 @@ class FormActivity : AppCompatActivity() {
             showToast("Data submitted successfully!")
             navigateToNextForm(userId)
         } else {
-            showToast("Data submition Failed!")
+            showToast("Data submission failed!")
         }
     }
 
